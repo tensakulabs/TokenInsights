@@ -7,9 +7,9 @@ Table showing where tokens are going by command category.
 
 Usage:
   python3 token-insights.py
+  python3 token-insights.py --days 30
   python3 token-insights.py --days 7
   python3 token-insights.py --project myproject
-  python3 token-insights.py --all
   python3 token-insights.py --workers 8
   python3 token-insights.py --json
 """
@@ -187,9 +187,9 @@ def categorize_command(cmd: str) -> str:
 
 def parse_args():
     p = argparse.ArgumentParser(description="Claude Code token operation table")
-    p.add_argument("--days", type=int, default=30, help="Days to analyze (default: 30)")
+    p.add_argument("--days", type=int, default=None, help="Limit to last N days (default: all time)")
     p.add_argument("--project", type=str, help="Filter to project name (substring match)")
-    p.add_argument("--all", action="store_true", help="Analyze all sessions (ignores --days)")
+    p.add_argument("--all", action="store_true", help="Alias for default all-time behavior")
     p.add_argument("--json", action="store_true", help="Output raw JSON instead of table")
     p.add_argument("--workers", type=int, default=None,
                    help="Parallel worker processes (default: cpu_count)")
@@ -449,8 +449,8 @@ def main():
         claude_dirs += [Path(d) for d in args.claude_dirs]
 
     now = datetime.now(timezone.utc)
-    cutoff = None if args.all else now - timedelta(days=args.days)
-    period_label = "all time" if args.all else f"last {args.days} days"
+    cutoff = None if (args.all or args.days is None) else now - timedelta(days=args.days)
+    period_label = f"last {args.days} days" if args.days else "all time"
 
     all_proj_dirs = list(collect_project_dirs(claude_dirs, args.project))
     cutoff_iso = cutoff.isoformat() if cutoff else None

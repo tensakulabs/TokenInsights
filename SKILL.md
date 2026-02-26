@@ -48,11 +48,11 @@ python3 ~/.claude/scripts/token-insights.py --workers 8
 | User says | Flag to add |
 |-----------|-------------|
 | "last week" / "7 days" | `--days 7` |
+| "last month" / "30 days" | `--days 30` |
 | "last 3 months" / "90 days" | `--days 90` |
-| "all time" / "everything" | `--all` |
 | "for [project]" / "in [project]" | `--project <name>` |
 | "as JSON" / "json output" | `--json` |
-| no time mentioned | (default: `--days 30`) |
+| no time mentioned | (default: all time) |
 
 ## Output
 
