@@ -1,55 +1,53 @@
 # TokenInsights
 
-Token usage analyzer for Claude Code. Scans your session history and shows where tokens are going — by operation, project, and tool.
+Claude Code skill — scans your session history and shows the **Token Operation Table**: where tokens are going by command category.
 
-## What it does
+## Installation
 
-- Breaks down token usage by bash command category (`git diff`, `cat/read`, test runners, etc.)
-- Shows per-project cost and cache hit rates
-- Identifies low cache-hit projects and optimization opportunities
-- Runs in parallel across all your session files (fast even with 15K+ sessions)
+1. Copy `SKILL.md` to your Claude skills directory:
+   ```bash
+   mkdir -p ~/.claude/skills/TokenInsights
+   cp SKILL.md ~/.claude/skills/TokenInsights/
+   ```
+
+2. Copy the script to your scripts directory:
+   ```bash
+   mkdir -p ~/.claude/scripts
+   cp token-insights.py ~/.claude/scripts/
+   ```
 
 ## Usage
 
+Once installed, invoke from Claude Code:
+
+```
+token usage
+show me the token operation table
+how many tokens am I using
+```
+
+Or run directly:
+
 ```bash
-# Last 30 days (default)
-python3 token-insights.py
-
-# Specific time window
-python3 token-insights.py --days 7
-python3 token-insights.py --days 90
-
-# Filter to one project
-python3 token-insights.py --project myproject
-
-# All time
-python3 token-insights.py --all
-
-# JSON output
-python3 token-insights.py --json
-
-# More parallel workers
-python3 token-insights.py --workers 8
+python3 ~/.claude/scripts/token-insights.py
+python3 ~/.claude/scripts/token-insights.py --days 7
+python3 ~/.claude/scripts/token-insights.py --project myproject
+python3 ~/.claude/scripts/token-insights.py --all
 ```
 
 ## Output
 
 ```
-📊  SUMMARY  (15,893 sessions · 81,713 API calls)
-    Total tokens         393.6M
-    ├─ Input (live)       12.0M
-    ├─ Output              1.2M
-    ├─ Cache writes      380.4M
-    └─ Cache reads      6109.7M  (hit rate 94%)
-    Estimated cost     $3313.86
+Token Operation Table  ·  last 30 days
 
-⚡  TOKEN OPERATION TABLE
-
-| Operation            | Frequency | Standard |
-|----------------------|-----------|----------|
-| `git diff`           | 120×      | 61.0K    |
-| `npm test` / `cargo test` | 56× | 36.7K   |
-| ...                  |           |          |
+| Operation             | Frequency | Standard |
+|------------------------|-----------|----------|
+| git diff              |      120× |    61.0K |
+| npm test / cargo test |       56× |    36.7K |
+| git status            |       98× |    12.1K |
+| cat / read            |      203× |     9.8K |
+| ...                   |           |          |
+| Total                 |           |   393.6M |
 ```
 
 ## Requirements

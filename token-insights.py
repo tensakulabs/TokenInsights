@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-token-insights.py — Token usage analyzer for Claude Code
+token-insights.py — Token operation table for Claude Code
 
-Scans ~/.claude/projects/ (and any ~/.claude-backup-*/ dirs) to show
-where tokens are going across your Claude Code sessions.
+Scans ~/.claude/projects/ session history and prints the Token Operation
+Table showing where tokens are going by command category.
 
 Usage:
   python3 token-insights.py
@@ -83,7 +83,6 @@ def simulate_compress(text: str, category: str) -> str:
     lines = text.splitlines()
 
     if category in ("npm/bun test", "cargo test", "pytest", "go test"):
-        # Keep only failure lines + final summary
         keep = []
         for line in lines:
             l = line.strip()
@@ -93,29 +92,23 @@ def simulate_compress(text: str, category: str) -> str:
         return "\n".join(keep[:40])
 
     if category == "git diff":
-        # Keep only +/- changed lines, drop context lines
         keep = [l for l in lines if l.startswith(("+", "-", "@@", "diff", "index", "---", "+++"))]
         return "\n".join(keep[:100])
 
     if category in ("ls / tree",):
-        # Keep first 40 lines — long listings are mostly noise
         return "\n".join(lines[:40])
 
     if category in ("cat / read",):
-        # Keep first 60 + last 10 for large files
         if len(lines) > 80:
             return "\n".join(lines[:60] + ["..."] + lines[-10:])
         return "\n".join(lines)
 
     if category in ("git log",):
-        # Keep first 30 lines (usually 5-6 log entries)
         return "\n".join(lines[:30])
 
     if category in ("git status",):
-        # Already short — just dedup blank lines
         return "\n".join(l for l in lines if l.strip())
 
-    # Default: remove blank lines + deduplicate consecutive identical lines + cap at 100 lines
     seen_last = None
     kept = []
     for line in lines:
@@ -131,7 +124,6 @@ def simulate_compress(text: str, category: str) -> str:
 def categorize_command(cmd: str) -> str:
     """Map a raw bash command string to an operation category."""
     cmd = cmd.strip()
-    # Strip leading env vars, sudo, time, etc.
     tokens = cmd.split()
     if not tokens:
         return "other bash"
@@ -157,7 +149,7 @@ def categorize_command(cmd: str) -> str:
             return "npm/bun test"
         if rest in ("install", "add", "i", "ci"):      return "npm/bun install"
         if rest in ("run", "x", "build", "dev"):       return "npm/bun run/build"
-        return f"npm/bun run/build"
+        return "npm/bun run/build"
 
     if first == "cargo":
         if rest == "test":    return "cargo test"
@@ -168,7 +160,7 @@ def categorize_command(cmd: str) -> str:
 
     if first == "go":
         if rest == "test":    return "go test"
-        return "cargo build/run"  # reuse bucket
+        return "cargo build/run"
 
     if first in ("ls", "ll", "exa", "lsd", "tree"):
         return "ls / tree"
@@ -182,22 +174,21 @@ def categorize_command(cmd: str) -> str:
     if first in ("ruff", "eslint", "biome", "flake8", "pylint", "mypy", "tsc"):
         return "lint (ruff/eslint)"
 
-    if first == "docker":                 return "docker"
-    if first in ("kubectl", "k9s", "helm", "k"):  return "k8s (kubectl/helm)"
-    if first == "ssh":                    return "ssh"
+    if first == "docker":                        return "docker"
+    if first in ("kubectl", "k9s", "helm", "k"): return "k8s (kubectl/helm)"
+    if first == "ssh":                           return "ssh"
     if first in ("curl", "wget", "http", "httpie"): return "curl / http"
-    if first in ("python", "python3"):    return "python / script"
-    if first in ("terraform", "tofu"):    return "terraform"
-    if first == "make":                   return "make"
+    if first in ("python", "python3"):           return "python / script"
+    if first in ("terraform", "tofu"):           return "terraform"
+    if first == "make":                          return "make"
 
     return "other bash"
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Claude Code session token insights")
+    p = argparse.ArgumentParser(description="Claude Code token operation table")
     p.add_argument("--days", type=int, default=30, help="Days to analyze (default: 30)")
     p.add_argument("--project", type=str, help="Filter to project name (substring match)")
-    p.add_argument("--top", type=int, default=12, help="Top N projects to show (default: 12)")
     p.add_argument("--all", action="store_true", help="Analyze all sessions (ignores --days)")
     p.add_argument("--json", action="store_true", help="Output raw JSON instead of table")
     p.add_argument("--workers", type=int, default=None,
@@ -248,11 +239,11 @@ def analyze_session(filepath, cutoff_ts):
         "cache_read": 0,
         "tool_calls": defaultdict(int),
         "tool_result_bytes": defaultdict(int),
-        "cmd_calls": defaultdict(int),   # bash category → call count
-        "cmd_bytes": defaultdict(int),   # bash category → result bytes
-        "cmd_samples": defaultdict(list),# bash category → [sample texts] (max 5/cat)
-        "_id_to_tool": {},               # tool_use_id → tool name
-        "_id_to_cmd": {},                # tool_use_id → bash category (Bash only)
+        "cmd_calls": defaultdict(int),
+        "cmd_bytes": defaultdict(int),
+        "cmd_samples": defaultdict(list),
+        "_id_to_tool": {},
+        "_id_to_cmd": {},
         "messages": 0,
         "first_ts": None,
         "last_ts": None,
@@ -330,7 +321,6 @@ def analyze_session(filepath, cutoff_ts):
                             if tool_name == "Bash" and tid in stats["_id_to_cmd"]:
                                 cat = stats["_id_to_cmd"][tid]
                                 stats["cmd_bytes"][cat] += size
-                                # Collect sample text (max 5 per category, 4KB each)
                                 if len(stats["cmd_samples"][cat]) < 5 and size > 0:
                                     raw = rc if isinstance(rc, str) else "".join(
                                         item.get("text", "") for item in rc
@@ -347,7 +337,6 @@ def analyze_session(filepath, cutoff_ts):
 
     del stats["_id_to_tool"]
     del stats["_id_to_cmd"]
-    # Convert defaultdicts to plain dicts for pickling
     stats["tool_calls"] = dict(stats["tool_calls"])
     stats["tool_result_bytes"] = dict(stats["tool_result_bytes"])
     stats["cmd_calls"] = dict(stats["cmd_calls"])
@@ -359,11 +348,6 @@ def analyze_session(filepath, cutoff_ts):
 # ── Top-level worker (must be module-level for multiprocessing pickle) ────────
 
 def process_project(args_tuple):
-    """
-    Worker function — processes one project directory.
-    args_tuple: (proj_path_str, cutoff_iso_str_or_None)
-    Returns (proj_path_str, agg_dict, scanned, skipped) or None.
-    """
     proj_path_str, cutoff_iso = args_tuple
     proj_path = Path(proj_path_str)
 
@@ -424,9 +408,7 @@ def process_project(args_tuple):
 def proj_display(dir_name):
     """Convert Claude Code's encoded project dir name to a readable path."""
     name = dir_name
-    # Claude encodes paths as hyphen-separated segments, e.g. -Users-alice-Projects-foo
-    # Strip the leading home path prefix dynamically
-    home_str = str(Path.home()).replace("/", "-")  # e.g. -Users-alice
+    home_str = str(Path.home()).replace("/", "-")
     for prefix in [
         f"{home_str}-Documents-github-",
         f"{home_str}-Documents-",
@@ -547,32 +529,7 @@ def main():
         print(json.dumps(out, indent=2))
         return
 
-    # ── Derived metrics ───────────────────────────────────────────────────────
-    total_tokens = grand["input"] + grand["output"] + grand["cache_write"]
-    total_cost = compute_cost(grand)
-    cacheable = grand["input"] + grand["cache_read"] + grand["cache_write"]
-    cache_hit_pct = grand["cache_read"] / cacheable * 100 if cacheable else 0
-
-    W = 68
-    print(f"\n{'═'*W}")
-    print(f"  Claude Code Token Insights  ·  {period_label}")
-    print(f"  Sources: {', '.join(d.name for d in claude_dirs)}")
-    print(f"{'═'*W}\n")
-
-    # ── Summary ───────────────────────────────────────────────────────────────
-    print(f"📊  SUMMARY  ({grand['session_count']:,} sessions · {grand['message_count']:,} API calls)")
-    print(f"    Total tokens       {fmt_tokens(total_tokens):>8}")
-    print(f"    ├─ Input (live)    {fmt_tokens(grand['input']):>8}")
-    print(f"    ├─ Output          {fmt_tokens(grand['output']):>8}")
-    print(f"    ├─ Cache writes    {fmt_tokens(grand['cache_write']):>8}")
-    print(f"    └─ Cache reads     {fmt_tokens(grand['cache_read']):>8}  (hit rate {cache_hit_pct:.0f}%)")
-    print(f"    Estimated cost     {fmt_cost(total_cost):>8}")
-    if not args.all:
-        daily = total_cost / args.days
-        print(f"    ≈ {fmt_cost(daily)}/day · {fmt_cost(daily*30)}/mo projected")
-    print()
-
-    # ── Empirical compression ratios from sampled content ─────────────────
+    # ── Empirical compression ratios from sampled content ─────────────────────
     empirical_ratios = {}
     for cat, samples in grand["cmd_samples"].items():
         if len(samples) < 3:
@@ -585,15 +542,10 @@ def main():
             empirical_ratios[cat] = 1.0 - (comp_total / orig_total)
 
     def get_ratio(cat):
-        """Return empirical ratio if available, else hardcoded fallback."""
         return empirical_ratios.get(cat, CMD_COMPRESSION.get(cat, 0.70))
 
-    # ── Operation table ───────────────────────────────────────────────────
-    # Rows: Bash command categories first, then other tools, then totals
+    # ── Operation table ────────────────────────────────────────────────────────
     rows = []
-
-    # Bash categories (only show ones with data)
-    bash_total_calls = bash_total_std = bash_total_compressed = 0
     for cat in CMD_COMPRESSION:
         calls = grand["cmd_calls"].get(cat, 0)
         if calls == 0:
@@ -601,144 +553,65 @@ def main():
         ratio = get_ratio(cat)
         total_b = grand["cmd_bytes"].get(cat, 0)
         std_tok = total_b // 4
-        avg_tok = std_tok // calls if calls else 0
         compressed_tok = int(std_tok * (1 - ratio))
-        rows.append((cat, calls, avg_tok, std_tok, compressed_tok, ratio))
-        bash_total_calls += calls
-        bash_total_std += std_tok
-        bash_total_compressed += compressed_tok
+        rows.append((cat, calls, std_tok, compressed_tok))
 
-    # Other tools
-    other_tool_std = other_tool_compressed = 0
-    other_rows = []
-    for tool, total_b in sorted(grand["tool_result_bytes"].items(), key=lambda x: -x[1]):
+    other_tool_std = 0
+    for tool, total_b in grand["tool_result_bytes"].items():
         if tool in ("Bash", "unknown"):
             continue
         ratio = TOOL_COMPRESSION.get(tool, TOOL_COMPRESSION["default"])
-        std_tok = total_b // 4
-        calls = grand["tool_calls"].get(tool, 0)
-        avg_tok = std_tok // calls if calls else 0
-        compressed_tok = int(std_tok * (1 - ratio))
-        other_rows.append((tool, calls, avg_tok, std_tok, compressed_tok, ratio))
-        other_tool_std += std_tok
-        other_tool_compressed += compressed_tok
+        other_tool_std += total_b // 4
 
-    grand_std = bash_total_std + other_tool_std
-    grand_compressed = bash_total_compressed + other_tool_compressed
-    grand_saving = (grand_std - grand_compressed) / grand_std if grand_std else 0
+    grand_std = sum(r[2] for r in rows) + other_tool_std
 
-    # Build lookup: category → (calls, std_tok, compressed_tok, ratio)
-    cat_data = {}
-    for cat, calls, avg, std, comp, ratio in rows:
-        cat_data[cat] = (calls, std, comp, ratio)
+    cat_data = {cat: (calls, std, comp) for cat, calls, std, comp in rows}
 
-    # Canonical rows (fixed order, matching reference table)
-    # Each entry: (display_name, [category_keys_to_merge])
+    # Canonical rows in reference order; anything extra is appended sorted by tokens
     CANONICAL = [
-        ("`ls` / `tree`",             ["ls / tree"]),
-        ("`cat` / `read`",            ["cat / read"]),
-        ("`grep` / `rg`",             ["grep / rg"]),
-        ("`git status`",              ["git status"]),
-        ("`git diff`",                ["git diff"]),
-        ("`git log`",                 ["git log"]),
-        ("`git add/commit/push`",     ["git add/commit/push"]),
-        ("`npm test` / `cargo test`", ["npm/bun test", "cargo test"]),
-        ("`ruff check`",              ["lint (ruff/eslint)"]),
-        ("`pytest`",                  ["pytest"]),
-        ("`go test`",                 ["go test"]),
-        ("`docker ps`",               ["docker"]),
+        ("ls / tree",             ["ls / tree"]),
+        ("cat / read",            ["cat / read"]),
+        ("grep / rg",             ["grep / rg"]),
+        ("git status",            ["git status"]),
+        ("git diff",              ["git diff"]),
+        ("git log",               ["git log"]),
+        ("git add/commit/push",   ["git add/commit/push"]),
+        ("npm test / cargo test", ["npm/bun test", "cargo test"]),
+        ("ruff check",            ["lint (ruff/eslint)"]),
+        ("pytest",                ["pytest"]),
+        ("go test",               ["go test"]),
+        ("docker ps",             ["docker"]),
     ]
 
-    md_header  = "| Operation | Frequency | Standard |"
-    md_divider = "|-----------|-----------|----------|"
-
-    print(f"⚡  TOKEN OPERATION TABLE  (based on your {period_label} sessions)\n")
-    print(md_header)
-    print(md_divider)
+    OP_W = 22
+    print(f"\nToken Operation Table  ·  {period_label}\n")
+    print(f"| {'Operation':<{OP_W}} | {'Frequency':>9} | {'Standard':>8} |")
+    print(f"|{'-'*(OP_W+2)}|{'-'*11}|{'-'*10}|")
 
     rendered_cats = set()
-    canon_total_calls = canon_total_std = canon_total_comp = 0
-
     for display, cats in CANONICAL:
-        c_calls = c_std = c_comp = 0
-        is_empirical = False
+        c_calls = c_std = 0
         for cat in cats:
             if cat in cat_data:
-                calls, std, comp, ratio = cat_data[cat]
+                calls, std, _ = cat_data[cat]
                 c_calls += calls
                 c_std += std
-                c_comp += comp
                 rendered_cats.add(cat)
-                if cat in empirical_ratios:
-                    is_empirical = True
         if c_calls == 0:
             continue
-        saving = (c_std - c_comp) / c_std if c_std else 0
-        print(f"| {display} | {c_calls:,}× | {fmt_tokens(c_std)} |")
-        canon_total_calls += c_calls
-        canon_total_std += c_std
-        canon_total_comp += c_comp
+        freq_str = f"{c_calls:,}×"
+        print(f"| {display:<{OP_W}} | {freq_str:>9} | {fmt_tokens(c_std):>8} |")
 
-    # Extra bash categories not in canonical list
-    extras = [(cat, *cat_data[cat]) for cat in sorted(cat_data, key=lambda c: -cat_data[c][1]) if cat not in rendered_cats]
-    for cat, calls, std, comp, ratio in extras:
-        print(f"| {cat} | {calls:,}× | {fmt_tokens(std)} |")
-        canon_total_calls += calls
-        canon_total_std += std
-        canon_total_comp += comp
+    extras = sorted(
+        [(cat, *cat_data[cat]) for cat in cat_data if cat not in rendered_cats],
+        key=lambda x: -x[2],
+    )
+    for cat, calls, std, _ in extras:
+        freq_str = f"{calls:,}×"
+        print(f"| {cat:<{OP_W}} | {freq_str:>9} | {fmt_tokens(std):>8} |")
 
-    bash_ratio = (canon_total_std - canon_total_comp) / canon_total_std if canon_total_std else 0
-    print(f"| **Total** | | **{fmt_tokens(grand_std)}** |")
+    print(f"| {'Total':<{OP_W}} | {'':>9} | {fmt_tokens(grand_std):>8} |")
     print()
-
-    # ── Tool call frequency ───────────────────────────────────────────────────
-    print(f"🔧  TOOL CALL FREQUENCY")
-    top_calls = sorted(grand["tool_calls"].items(), key=lambda x: -x[1])
-    max_count = top_calls[0][1] if top_calls else 1
-    for tool, count in top_calls[:10]:
-        bar = "█" * max(1, round(count / max_count * 24))
-        print(f"    {tool:<28} {count:>5,}  {bar}")
-    print()
-
-    # ── Top projects ──────────────────────────────────────────────────────────
-    top_n = args.top
-    top_projs = sorted(project_stats.values(), key=lambda x: -(x["input"] + x["output"]))[:top_n]
-    print(f"🗂️   TOP {top_n} PROJECTS BY TOKEN USAGE\n")
-    print(f"    {'Project':<32} {'Sess':>5} {'Input':>7} {'Output':>7} {'Cache%':>7} {'Cost':>8}")
-    print(f"    {'─'*32} {'─'*5} {'─'*7} {'─'*7} {'─'*7} {'─'*8}")
-    for s in top_projs:
-        name = proj_display(s["_name"])[:31]
-        cap = max(s["input"] + s["cache_read"] + s["cache_write"], 1)
-        cpct = s["cache_read"] / cap * 100
-        cost = compute_cost(s)
-        print(f"    {name:<32} {s['session_count']:>5,} {fmt_tokens(s['input']):>7}"
-              f" {fmt_tokens(s['output']):>7} {cpct:>6.0f}% {fmt_cost(cost):>8}")
-    print()
-
-    # ── Optimization tips ─────────────────────────────────────────────────────
-    print(f"🎯  OPTIMIZATION TIPS\n")
-    low_cache = [
-        s for s in project_stats.values()
-        if s["session_count"] >= 3
-        and (s["cache_read"] / max(s["input"] + s["cache_read"] + s["cache_write"], 1)) < 0.25
-        and (s["input"] + s["output"]) > 5000
-    ]
-    if low_cache:
-        print(f"    Low cache hit rate (<25%) — longer sessions = more cache reuse:")
-        for s in sorted(low_cache, key=lambda x: -(x["input"] + x["output"]))[:4]:
-            cap = max(s["input"] + s["cache_read"] + s["cache_write"], 1)
-            pct = s["cache_read"] / cap * 100
-            print(f"    ├─ {proj_display(s['_name'])}: {pct:.0f}% hit, {s['session_count']} sessions")
-        print()
-
-    avg_per_sess = total_cost / grand["session_count"] if grand["session_count"] else 0
-    if not args.all:
-        daily = total_cost / args.days
-        projected_compressed = (daily - (grand_std - grand_compressed) * PRICING["input"] / 1_000_000 / args.days) * 30
-        print(f"    Avg cost/session:   {fmt_cost(avg_per_sess)}")
-        print(f"    Projected monthly:  {fmt_cost(daily*30)}  →  {fmt_cost(projected_compressed)} with compression")
-    print(f"    Sessions scanned:   {scanned:,}  (skipped by age: {skipped:,})")
-    print(f"\n{'═'*W}\n")
 
 
 if __name__ == "__main__":
